@@ -18,7 +18,9 @@ def file_hash(data):
 async def query(socket, command):
     #TODO: implement centralized read loop in case a socket has multiple waiters
     await socket.send_json({'command': command})
-    return await anext(socket, None)
+    res = await anext(socket, None)
+    print(res.data)
+    return res
 
 
 class Worker:
@@ -35,15 +37,13 @@ class Worker:
         self.exp_itss_per_pixel = 2**21
     def estimate_dl_time(self, files):
         size = 0
+        #TODO: wrap files as class, etag/hash support
         for file in files:
-            if hasattr(file, size):
-                size += file.size
-                continue
             #Make a series of rough guesses
-            match file.path:
+            match file:
                 case x if x.startswith('models/checkpoints'):
                     size += 2 ** 32 #4GB
-                case x if x.startshwith('models'):
+                case x if x.startswith('models'):
                     size += 2 ** 30 #1GB
                 case x if x.split('.')[-1] in ['mp4','webm','mkv', 'gif']:
                     size += 2 ** 28
