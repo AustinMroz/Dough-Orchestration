@@ -199,23 +199,17 @@ async def get_job_status(request):
         else:
             target_jobs[i] = "Processing" if target_jobs[i][0].done() else "In queue"
     return web.json_response(target_jobs)
-
-
+async def dump_logs(request):
+    output = []
+    for worker in workerbatch.workers:
+        try:
+            output.append(await (await worker.send_command({'command': 'logs'})))
+        except Exception as e:
+            output.append("failed: " + str(e))
+    return web.json_response(output)
 
 #Framework code for easier testing
 if __name__ == "__main__":
-    async def web_test(request):
-        return web.json_response("SSL Works")
-    async def mirror(request):
-        js = await request.json()
-        processing = asyncio.Future()
-        completed = asyncio.Future()
-        await messagequeue.put((js, processing, completed))
-        await processing
-        #TODO: Timeout/updates?
-        res = await completed
-        return web.json_response(res)
-
     #Needs further testing. Connections were valid from browser, but not python
     #context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     #context.load_cert_chain(serverCert, serverKey)
@@ -223,8 +217,7 @@ if __name__ == "__main__":
 
     app = web.Application()
     app.add_routes([web.get('/ws', websocket_handler)])
-    app.add_routes([web.get('/test', web_test)])
-    app.add_routes([web.post('/mirror', mirror)])
     app.add_routes([web.post('/prompt', post_prompt)])
     app.add_routes([web.post('/job_status', get_job_status)])
+    app.add_routes([web.get('/dump_logs', dump_logs)])
     web.run_app(app, port=8888, ssl_context=context)
