@@ -76,8 +76,14 @@ class Worker:
         return  job.estimated_pixelsteps /self.exp_itss_per_pixel
     async def recieve_response(self):
         while True:
-            resp = (await anext(self.socket, None)).json()
-            self.messages.pop(resp['message_id']).set_result(resp)
+            resp = await anext(self.socket, None)
+            if resp is None:
+                break
+            resp = resp.json()
+            if 'error' in resp:
+                print(resp)
+            else:
+                self.messages.pop(resp['message_id']).set_result(resp)
     async def send_command(self, command):
         future = asyncio.Future()
         command['message_id'] = self.message_id
@@ -111,7 +117,6 @@ class WorkerBatch:
             f.set_result("No available workers")
             return f
         w =min(self.workers, key=lambda w: w.recursive_estimate_time(job)[0])
-        print(w)
         future = await w.send_command({'command': 'prompt', 'data': job.workflow})
         self.incomplete_jobs.append(future)
         self.has_incomplete_jobs.set()
