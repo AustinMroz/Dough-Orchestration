@@ -51,8 +51,8 @@ async def main():
     queueloop = asyncio.create_task(queue_loop(jobqueue))
     async with aiohttp.ClientSession() as session:
         async with session.ws_connect('http://127.0.0.1:8888/ws') as ws:
-            async for msg in ws:
-                try:
+            try:
+                async for msg in ws:
                     if msg.type == aiohttp.WSMsgType.TEXT:
                         js = msg.json()
                         resp = {"message_id": js.get('message_id', 0)}
@@ -74,7 +74,7 @@ async def main():
                         await ws.send_json(resp)
                     elif msg.type == aiohttp.WSMsgType.ERROR:
                         print("recieved error message")
-                except Exception as e:
-                    print(e)
+            except Exception as e:
+                print(e)
 
 asyncio.run(main())

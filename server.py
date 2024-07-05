@@ -58,6 +58,8 @@ class Worker:
     def recursive_estimate_time(self, job, ind=None):
         if ind is None:
             ind = len(self.queue)
+        else:
+            job = self.queue[ind]
         exec_time = self.estimate_execution_time(job)
         if ind == 0:
             #TODO subtract current execution time?
@@ -70,7 +72,7 @@ class Worker:
         dl_time = self.estimate_dl_time(job.assets.difference(avail_files))
         #NOTE: This may make dl_time negative
         dl_time -= dl_slack
-        return  max(exec_time, dl_time), min(exec_time-dl_time,0), job.assets.union(self.files)
+        return  sub_dur + max(exec_time, dl_time), max(exec_time-dl_time,0), job.assets.union(self.files)
     def estimate_execution_time(self, job):
         return  job.estimated_pixelsteps /self.exp_itss_per_pixel
     async def recieve_response(self):
@@ -90,6 +92,12 @@ class Worker:
         await self.socket.send_json(command)
 
         return future
+    async def queue_job(self, job):
+        self.queue.append(job)
+        f = await self.send_command({'command': 'prompt', 'data': job.workflow})
+        f.add_done_callback(lambda x: self.queue.remove(job))
+        return f
+
 
 class WorkerBatch:
     def __init__(self):
@@ -124,7 +132,7 @@ class WorkerBatch:
             f.set_result("No available workers")
             return f
         w =min(active_workers, key=lambda w: w.recursive_estimate_time(job)[0])
-        future = await w.send_command({'command': 'prompt', 'data': job.workflow})
+        future = await w.queue_job(job)
         self.incomplete_jobs.append(future)
         self.has_incomplete_jobs.set()
         return future
