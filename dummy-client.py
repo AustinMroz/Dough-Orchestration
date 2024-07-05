@@ -7,22 +7,26 @@ import functools
 import random
 import json
 
+from server import calc_estimated_pixelsteps
+
 wrong_list = [(50, 'nop'), (1,'crash'), (2, 'softexit'), (5, 'outoforder'), (10, 'error')]
 wrong_list = [(50, 'nop')]
 wrong_sum = functools.reduce(lambda x,y: x+y[0], wrong_list, 0)
 
 files = set()
 async def queue_loop(jobqueue):
-    gpu_speed = random.randint(5,25)
+    gpu_speed = random.randint(2**20,2**22)
     dl_speed = random.randint(5,25)
     while True:
-        t,f,workflow = await jobqueue.get()
+        f,workflow = await jobqueue.get()
         #Simulate file grab
         for file in workflow['extra_data']['remote_files']:
             if file['url'] not in files:
                 await asyncio.sleep(random.randint(1,60)/dl_speed)
                 files.add(file['url'])
-        await asyncio.sleep(t / gpu_speed)
+        t = calc_estimated_pixelsteps(workflow) / gpu_speed
+        print(t)
+        await asyncio.sleep(t)
         #Randomly, some number of things can go wrong
         rand_num = random.randint(0,wrong_sum)
         for item in wrong_list:
@@ -59,7 +63,7 @@ async def main():
                         match js['command']:
                             case 'prompt':
                                 f = asyncio.Future()
-                                jobqueue.put_nowait((random.randint(4*5,15*5),f, js['data']))
+                                jobqueue.put_nowait((f, js['data']))
                                 resp['data'] = await f
                             case "queue":
                                 resp['data'] = [[],[]]

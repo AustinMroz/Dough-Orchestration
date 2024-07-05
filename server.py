@@ -157,30 +157,32 @@ workerbatch = WorkerBatch()
 class Job:
     def __init__(self, workflow, assets, wid, jobid):
         self.workflow = workflow
-        steps = 0
-        resolution = []
-        for node in workflow['prompt'].values():
-            width, height = 0,0
-            for ik in node['inputs']:
-                if not isinstance(node['inputs'][ik], int):
-                    continue
-                if ik == 'steps':
-                    steps += node['inputs'][ik]
-                elif ik == 'width':
-                    width = node['inputs'][ik]
-                elif ik == 'height':
-                    height = node['inputs'][ik]
-            if width and height:
-                resolution.append(width * height)
-        if len(resolution) > 0:
-            avg_size = sum(resolution)/len(resolution)
-        else:
-            avg_size = 1920 * 1080 * 16
-        steps = steps or 20
-        #TODO: cache value per job?
-        self.estimated_pixelsteps = steps*avg_size
+        self.estimated_pixelsteps = calc_estimated_pixelsteps(workflow)
         #TODO: Check assets form, begin upload if needed, (invert)
         self.assets = set([file_hash(f['url'].encode('utf-8')) for f in workflow['extra_data']['remote_files']])
+def calc_estimated_pixelsteps(workflow):
+    steps = 0
+    resolution = []
+    for node in workflow['prompt'].values():
+        width, height = 0,0
+        for ik in node['inputs']:
+            if not isinstance(node['inputs'][ik], int):
+                continue
+            if ik == 'steps':
+                steps += node['inputs'][ik]
+            elif ik == 'width':
+                width = node['inputs'][ik]
+            elif ik == 'height':
+                height = node['inputs'][ik]
+        if width and height:
+            resolution.append(width * height)
+    if len(resolution) > 0:
+        avg_size = sum(resolution)/len(resolution)
+    else:
+        avg_size = 1920 * 1080 * 16
+    steps = steps or 20
+    #TODO: cache value per job?
+    return steps*avg_size
 
 
 #messagequeue = asyncio.Queue()
@@ -193,7 +195,6 @@ async def websocket_handler(request):
     return ws
 jobs = []
 async def post_prompt(request):
-    print("got prompt")
     js = await request.json()
     processing = asyncio.Future()
     #workerbatch.queue_job(Job(js['workflow'], js['assets'], js['wid'], js['jobid']))
