@@ -4,9 +4,6 @@ from aiohttp import web
 import ssl
 import hashlib
 
-
-loop = asyncio.get_event_loop()
-
 def get_headers():
     return {'Salad-Api-Key': os.environ['SALAD_API_KEY']}
 
@@ -100,7 +97,7 @@ class Worker:
 
 
 class WorkerBatch:
-    def __init__(self):
+    def __init__(self, loop):
         self.workers = []
         self.incomplete_jobs = []
         self.has_incomplete_jobs = asyncio.Event()
@@ -151,8 +148,8 @@ class WorkerBatch:
                 self.incomplete_jobs.remove(job)
                 to_notify.append((resp['output'], job.id, resp['execution_time'], resp['machineid']))
             for n in to_notify:
-                notify_finish(*n)
-workerbatch = WorkerBatch()
+                pass
+                #notify_finish(*n)
 
 class Job:
     def __init__(self, workflow, assets, wid, jobid):
@@ -227,14 +224,28 @@ async def dump_logs(request):
 
 #Framework code for easier testing
 if __name__ == "__main__":
-    #Needs further testing. Connections were valid from browser, but not python
-    #context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    #context.load_cert_chain(serverCert, serverKey)
-    context=None
+    async def start_server():
+        #Needs further testing. Connections were valid from browser, but not python
+        #context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        #context.load_cert_chain(serverCert, serverKey)
+        context=None
 
-    app = web.Application()
-    app.add_routes([web.get('/ws', websocket_handler)])
-    app.add_routes([web.post('/prompt', post_prompt)])
-    app.add_routes([web.post('/job_status', get_job_status)])
-    app.add_routes([web.get('/dump_logs', dump_logs)])
-    web.run_app(app, port=8888, ssl_context=context)
+
+        app = web.Application()
+        app.add_routes([web.get('/ws', websocket_handler)])
+        app.add_routes([web.post('/prompt', post_prompt)])
+        app.add_routes([web.post('/job_status', get_job_status)])
+        app.add_routes([web.get('/dump_logs', dump_logs)])
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '', 8888, ssl_context=context)
+        await site.start()
+        print("server started")
+
+    loop = asyncio.new_event_loop()
+    workerbatch = WorkerBatch(loop)
+    task = loop.create_task(start_server())
+    loop.run_forever()
+else:
+    loop = asyncio.get_event_loop()
+    workerbatch = WorkerBatch(loop)
