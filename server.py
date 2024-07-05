@@ -19,7 +19,6 @@ async def query(socket, command):
     #TODO: implement centralized read loop in case a socket has multiple waiters
     await socket.send_json({'command': command})
     res = await anext(socket, None)
-    print(res.data)
     return res
 
 
@@ -80,9 +79,8 @@ class Worker:
             if resp is None:
                 break
             resp = resp.json()
-            if 'error' in resp:
-                print(resp)
-            else:
+            print(resp)
+            if 'error' not in resp:
                 self.messages.pop(resp['message_id']).set_result(resp)
     async def send_command(self, command):
         future = asyncio.Future()
@@ -110,13 +108,22 @@ class WorkerBatch:
             resp =(await query(socket, 'files')).json()
             worker.files = resp['data']
             self.workers.append(worker)
-        await worker.recieve_response()
+        try:
+            await worker.recieve_response()
+        except:
+            print('disconnected:')
+        worker.socket = None
+        await asyncio.sleep(120)
+        if worker.socket is None:
+            print('pruned worker' + worker.machine_id)
+            self.workers.remove(worker)
     async def queue_job(self, job):
-        if len(self.workers) == 0:
+        active_workers = list(filter(lambda w: w.socket is not None, self.workers))
+        if len(active_workers) == 0:
             f = asyncio.Future()
             f.set_result("No available workers")
             return f
-        w =min(self.workers, key=lambda w: w.recursive_estimate_time(job)[0])
+        w =min(active_workers, key=lambda w: w.recursive_estimate_time(job)[0])
         future = await w.send_command({'command': 'prompt', 'data': job.workflow})
         self.incomplete_jobs.append(future)
         self.has_incomplete_jobs.set()
@@ -178,6 +185,7 @@ async def websocket_handler(request):
     return ws
 jobs = []
 async def post_prompt(request):
+    print("got prompt")
     js = await request.json()
     processing = asyncio.Future()
     #workerbatch.queue_job(Job(js['workflow'], js['assets'], js['wid'], js['jobid']))
