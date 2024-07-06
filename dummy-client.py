@@ -15,6 +15,7 @@ wrong_sum = functools.reduce(lambda x,y: x+y[0], wrong_list, 0)
 
 files = set()
 async def queue_loop(jobqueue):
+    job_number = 0
     gpu_speed = random.randint(2**20,2**22)
     dl_speed = random.randint(5,25)
     while True:
@@ -48,7 +49,11 @@ async def queue_loop(jobqueue):
                 continue
             case 'softexit':
                 sys.exit()
-        f.set_result({"result": f"gen complete: {sys.argv[-1]}"})
+        response = {'prompt_id': str(uuid.uuid4()), 'number': job_number,
+                    'node_errors': {}, 'outputs': [f'output/ComfyUI_{job_number:05d}_.png'],
+                    'execution_time':t, 'machineid': str(sys.argv[-1])}
+        job_number += 1
+        f.set_result(response)
 
 async def main():
     jobqueue = asyncio.Queue()
@@ -70,7 +75,7 @@ async def main():
                             case "files":
                                 resp['data'] = []
                             case "info":
-                                resp['data'] = {'machine_id': str(uuid.uuid4())}
+                                resp['data'] = {'machine_id': str(sys.argv[-1])}
                             case "logs":
                                 resp['data'] = "no logs"
                             case _:

@@ -80,7 +80,8 @@ class Worker:
             resp = resp.json()
             print(resp)
             if 'error' not in resp:
-                self.messages.pop(resp['message_id']).set_result(resp)
+                future = self.messages.pop(resp['message_id'])
+                future.set_result(resp)
     async def send_command(self, command):
         future = asyncio.Future()
         command['message_id'] = self.message_id
@@ -92,7 +93,16 @@ class Worker:
     async def queue_job(self, job):
         self.queue.append(job)
         f = await self.send_command({'command': 'prompt', 'data': job.workflow})
-        f.add_done_callback(lambda x: self.queue.remove(job))
+        def on_finish(f, job=job):
+            self.queue.remove(job)
+            #update speed estimates
+            resp = f.result()
+            #NOTE: first job completed is 50% decay
+            weight = min(resp['data']['number']+2, 10)
+            measured = job.estimated_pixelsteps / float(resp['data']['execution_time'])
+            self.exp_itss_per_pixel = self.exp_itss_per_pixel * (weight-1)/weight + measured /weight
+
+        f.add_done_callback(on_finish)
         return f
 
 
