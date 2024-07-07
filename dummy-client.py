@@ -10,7 +10,7 @@ import json
 from server import calc_estimated_pixelsteps
 
 wrong_list = [(50, 'nop'), (1,'crash'), (2, 'softexit'), (5, 'outoforder'), (10, 'error')]
-wrong_list = [(50, 'nop')]
+#wrong_list = [(50, 'nop')]
 wrong_sum = functools.reduce(lambda x,y: x+y[0], wrong_list, 0)
 
 files = set()
@@ -35,25 +35,33 @@ async def queue_loop(jobqueue):
             if rand_num <= 0:
                 event = item[1]
                 break
+        if event != 'nop':
+            print(event)
         match event:
             case 'nop':
                 pass
             case 'crash':
                 signal.raise_signal(signal.SIGKILL)
             case 'outoforder':
-                t1,f1 = await jobqueue.get()
-                await asyncio.sleep(t1)
-                f1.set_result("gen comple")
+                if not jobqueue.empty():
+                    t1,f1 = await jobqueue.get()
+                    await asyncio.sleep(t1)
+                    response = get_response(t1, job_number)
+                    job_number += 1
+                    f1.set_result("response")
             case 'error':
                 f.set_result('error')
                 continue
             case 'softexit':
                 sys.exit()
-        response = {'prompt_id': str(uuid.uuid4()), 'number': job_number,
-                    'node_errors': {}, 'outputs': [f'output/ComfyUI_{job_number:05d}_.png'],
-                    'execution_time':t, 'machineid': str(sys.argv[-1])}
+        response = get_response(t, job_number)
         job_number += 1
         f.set_result(response)
+def get_response(t, job_number):
+        return {'prompt_id': str(uuid.uuid4()), 'number': job_number,
+                'node_errors': {}, 'outputs': [f'output/ComfyUI_{job_number:05d}_.png'],
+                'execution_time':t, 'machineid': str(sys.argv[-1])}
+
 
 async def main():
     jobqueue = asyncio.Queue()

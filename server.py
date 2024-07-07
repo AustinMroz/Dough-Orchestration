@@ -98,6 +98,8 @@ class Worker:
             #update speed estimates
             resp = f.result()
             #NOTE: first job completed is 50% decay
+            if 'data' not in resp or 'number' not in resp['data']:
+                return
             weight = min(resp['data']['number']+2, 10)
             measured = job.estimated_pixelsteps / float(resp['data']['execution_time'])
             self.exp_itss_per_pixel = self.exp_itss_per_pixel * (weight-1)/weight + measured /weight
@@ -140,6 +142,7 @@ class WorkerBatch:
             return f
         w =min(active_workers, key=lambda w: w.recursive_estimate_time(job)[0])
         future = await w.queue_job(job)
+        future.job = job
         self.incomplete_jobs.append(future)
         self.has_incomplete_jobs.set()
         return future
@@ -147,16 +150,25 @@ class WorkerBatch:
         while True:
             await self.has_incomplete_jobs.wait()
             #Pending must be discarded, new jobs may have been added
-            done, pending = await asyncio.wait(self.incomplete_jobs, timeout=30, return_when=FIRST_COMPLETED)
-            if len(pending) == 0:
-                self.has_incomplete.clear()
+            done, _ = await asyncio.wait(self.incomplete_jobs, timeout=30, return_when=asyncio.FIRST_COMPLETED)
+            if len(done) == len(self.incomplete_jobs):
+                self.has_incomplete_jobs.clear()
             to_notify = []
-            for resp, job in done:
-                if "error" in resp:
-                    await self.queue_job(job)
-                    continue
-                self.incomplete_jobs.remove(job)
-                to_notify.append((resp['output'], job.id, resp['execution_time'], resp['machineid']))
+            to_requeue = []
+            for f in done:
+                resp = f.result()
+                job = f.job
+                self.incomplete_jobs.remove(f)
+                data = resp['data']
+                #NOTE: queues must be delayed to keep incomplete job modifications atomic
+                #TODO: standardize error messaging
+                if "error" in resp or "error" in resp['data']:
+                   to_requeue.append(self.queue_job(job))
+                else:
+                    to_notify.append((data['outputs'], job.jobid,
+                                      data['execution_time'], data['machineid']))
+            if len(to_requeue) > 0:
+                await asyncio.gather(*to_requeue)
             for n in to_notify:
                 pass
                 #notify_finish(*n)
@@ -164,6 +176,8 @@ class WorkerBatch:
 class Job:
     def __init__(self, workflow, assets, wid, jobid):
         self.workflow = workflow
+        self.jobid = jobid
+        self.wid = wid
         self.estimated_pixelsteps = calc_estimated_pixelsteps(workflow)
         #TODO: Check assets form, begin upload if needed, (invert)
         self.assets = set([file_hash(f['url'].encode('utf-8')) for f in workflow['extra_data']['remote_files']])
