@@ -76,6 +76,11 @@ class Worker:
         while True:
             resp = await anext(self.socket, None)
             if resp is None:
+                #Connection closed. Mark all in flight messages as dead
+                for message_future in self.messages.values():
+                    message_future.set_result({"error": "connection closed"})
+
+                #TODO: reconsider try-catch if returning gracefully
                 break
             resp = resp.json()
             print(resp)
@@ -172,6 +177,27 @@ class WorkerBatch:
             for n in to_notify:
                 pass
                 #notify_finish(*n)
+    async def websocket_handler(self, request):
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        print('connected')
+        #NOTE: Never returns
+        await self.connect_socket(ws)
+        return ws
+    async def post_prompt(self, request):
+        js = await request.json()
+        processing = asyncio.Future()
+        #workerbatch.queue_job(Job(js['workflow'], js['assets'], js['wid'], js['jobid']))
+        completed  = await self.queue_job(Job(js,None, None, None))
+        return web.json_response(await completed)
+    async def dump_logs(request):
+        output = []
+        for worker in self.workers:
+            try:
+                output.append(await (await worker.send_command({'command': 'logs'})))
+            except Exception as e:
+                output.append("failed: " + str(e))
+        return web.json_response(output)
 
 class Job:
     def __init__(self, workflow, assets, wid, jobid):
@@ -205,71 +231,24 @@ def calc_estimated_pixelsteps(workflow):
     #TODO: cache value per job?
     return steps*avg_size
 
-
-#messagequeue = asyncio.Queue()
-async def websocket_handler(request):
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-    print('connected')
-    #NOTE: Never returns
-    await workerbatch.connect_socket(ws)
-    return ws
-jobs = []
-async def post_prompt(request):
-    js = await request.json()
-    processing = asyncio.Future()
-    #workerbatch.queue_job(Job(js['workflow'], js['assets'], js['wid'], js['jobid']))
-    completed  = await workerbatch.queue_job(Job(js,None, None, None))
-    return web.json_response(await completed)
-    #await messagequeue.put((js, processing, completed))
-    ind = len(jobs)
-    jobs.append((processing, completed))
-    return web.json_response({'job_id': ind})
-async def get_job_status(request):
-    js = await request.json()
-    if 'job_ids' in js:
-        target_jobs = [jobs[i] for i in js['job_ids']]
-    else:
-        target_jobs = jobs.copy()
-    for i in range(len(target_jobs)):
-        if target_jobs[i][1].done():
-            target_jobs[i] = target_jobs[i][1].result()
-        else:
-            target_jobs[i] = "Processing" if target_jobs[i][0].done() else "In queue"
-    return web.json_response(target_jobs)
-async def dump_logs(request):
-    output = []
-    for worker in workerbatch.workers:
-        try:
-            output.append(await (await worker.send_command({'command': 'logs'})))
-        except Exception as e:
-            output.append("failed: " + str(e))
-    return web.json_response(output)
-
 #Framework code for easier testing
 if __name__ == "__main__":
+    loop = asyncio.new_event_loop()
+    workerbatch = WorkerBatch(loop)
     async def start_server():
         #Needs further testing. Connections were valid from browser, but not python
         #context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         #context.load_cert_chain(serverCert, serverKey)
         context=None
-
-
         app = web.Application()
-        app.add_routes([web.get('/ws', websocket_handler)])
-        app.add_routes([web.post('/prompt', post_prompt)])
-        app.add_routes([web.post('/job_status', get_job_status)])
-        app.add_routes([web.get('/dump_logs', dump_logs)])
+        app.add_routes([web.get('/ws', workerbatch.websocket_handler)])
+        app.add_routes([web.post('/prompt', workerbatch.post_prompt)])
+        app.add_routes([web.get('/dump_logs', workerbatch.dump_logs)])
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, '', 8888, ssl_context=context)
         await site.start()
         print("server started")
 
-    loop = asyncio.new_event_loop()
-    workerbatch = WorkerBatch(loop)
     task = loop.create_task(start_server())
     loop.run_forever()
-else:
-    loop = asyncio.get_event_loop()
-    workerbatch = WorkerBatch(loop)
