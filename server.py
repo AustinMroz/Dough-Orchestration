@@ -143,7 +143,7 @@ class WorkerBatch:
         active_workers = list(filter(lambda w: w.socket is not None, self.workers))
         if len(active_workers) == 0:
             f = asyncio.Future()
-            f.set_result("No available workers")
+            f.set_result({"error": "No available workers"})
             return f
         w =min(active_workers, key=lambda w: w.recursive_estimate_time(job)[0])
         future = await w.queue_job(job)
@@ -164,12 +164,12 @@ class WorkerBatch:
                 resp = f.result()
                 job = f.job
                 self.incomplete_jobs.remove(f)
-                data = resp['data']
                 #NOTE: queues must be delayed to keep incomplete job modifications atomic
                 #TODO: standardize error messaging
                 if "error" in resp or "error" in resp['data']:
                    to_requeue.append(self.queue_job(job))
                 else:
+                    data = resp['data']
                     to_notify.append((data['outputs'], job.jobid,
                                       data['execution_time'], data['machineid']))
             if len(to_requeue) > 0:
