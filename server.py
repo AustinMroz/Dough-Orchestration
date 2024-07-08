@@ -141,10 +141,10 @@ class WorkerBatch:
             self.workers.remove(worker)
     async def queue_job(self, job):
         active_workers = list(filter(lambda w: w.socket is not None, self.workers))
-        if len(active_workers) == 0:
-            f = asyncio.Future()
-            f.set_result({"error": "No available workers"})
-            return f
+        while len(active_workers) == 0:
+            #TODO: send back warning?
+            await asyncio.sleep(5)
+            active_workers = list(filter(lambda w: w.socket is not None, self.workers))
         w =min(active_workers, key=lambda w: w.recursive_estimate_time(job)[0])
         future = await w.queue_job(job)
         future.job = job
